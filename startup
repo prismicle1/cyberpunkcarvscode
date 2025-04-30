@@ -1,32 +1,63 @@
-function controllers:getAll()
-    local allControllers = {peripheral.find("tweaked_controller")}
-    for k, v in pairs(allControllers) do
-        self.controllers[k] = setmetatable({ joy = v }, { __index = absController })
-        self.controllers[k]:defaultOutput()
+-- Define controller object and structure
+local absController = {
+    LeftStick = { x = 0, y = 0 },
+    hasUser = false
+}
 
-        -- Link the redstone resistor (adjust this for where your resistor is)
-        local redstoneResistor = peripheral.wrap("bottom")  -- Assuming the redstone resistor is at the bottom
-
-        -- Refresh controller input
-        self.controllers[k]:refresh()
-
-        -- Get the Left Stick Y Axis input for W and S keybinds
-        local leftStickY = self.controllers[k].LeftStick.y
-
-        -- If W is held (LeftStick Y negative), lower power (increase speed)
-        if leftStickY < -0.5 then  -- You can tweak this threshold for sensitivity
-            local currentPower = redstoneResistor.getOutput("bottom")
-            redstoneResistor.setOutput("bottom", math.max(0, currentPower - 1))  -- Decrease power for acceleration
-
-        -- If S is held (LeftStick Y positive), raise power (decrease speed)
-        elseif leftStickY > 0.5 then  -- You can tweak this threshold for sensitivity
-            local currentPower = redstoneResistor.getOutput("bottom")
-            redstoneResistor.setOutput("bottom", math.min(15, currentPower + 1))  -- Increase power for braking
-
-        -- When no key is held (no significant movement), slowly increase power
-        else
-            local currentPower = redstoneResistor.getOutput("bottom")
-            redstoneResistor.setOutput("bottom", math.min(15, currentPower + 0.05))  -- Gradually raise power
+function absController:refresh()
+    self.hasUser = false
+    if self.joy then
+        if not pcall(self.joy.hasUser) then return end
+        if self.joy.hasUser() then
+            self.joy.setFullPrecision(true)
+            self.hasUser = true
+            self.LeftStick.x = -self.joy.getAxis(1)
+            self.LeftStick.y = -self.joy.getAxis(2)
         end
     end
 end
+
+-- Setup controllers table
+local controllers = {
+    controllers = {}
+}
+
+function controllers:getAll()
+    local allControllers = { peripheral.find("tweaked_controller") }
+    for k, v in pairs(allControllers) do
+        self.controllers[k] = setmetatable({ joy = v }, { __index = absController })
+    end
+end
+
+-- Main loop
+local function main()
+    controllers:getAll()
+    local resistorSide = "bottom" -- change if needed
+
+    local power = 15 -- Start at full power (car stopped)
+    redstone.setAnalogOutput(resistorSide, power)
+
+    while true do
+        for _, controller in pairs(controllers.controllers) do
+            controller:refresh()
+
+            if controller.hasUser then
+                local y = controller.LeftStick.y
+                if y < -0.5 then
+                    -- Holding W: Accelerate (lower power)
+                    power = math.max(0, power - 1)
+                elseif y > 0.5 then
+                    -- Holding S: Brake (increase power fast)
+                    power = math.min(15, power + 2)
+                else
+                    -- No input: Slowly return to idle
+                    power = math.min(15, power + 0.1)
+                end
+                redstone.setAnalogOutput(resistorSide, math.floor(power + 0.5)) -- round to int
+            end
+        end
+        sleep(0.1)
+    end
+end
+
+main()
