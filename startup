@@ -1,63 +1,46 @@
--- Define controller object and structure
-local absController = {
-    LeftStick = { x = 0, y = 0 },
-    hasUser = false
-}
-
-function absController:refresh()
-    self.hasUser = false
-    if self.joy then
-        if not pcall(self.joy.hasUser) then return end
-        if self.joy.hasUser() then
-            self.joy.setFullPrecision(true)
-            self.hasUser = true
-            self.LeftStick.x = -self.joy.getAxis(1)
-            self.LeftStick.y = -self.joy.getAxis(2)
-        end
-    end
+-- Peripheral linking and controller setup
+local controller = peripheral.find("tweaked_controller")
+if not controller then
+    print("Tweaked Controller not found!")
+    return
 end
 
--- Setup controllers table
-local controllers = {
-    controllers = {}
-}
+controller.setFullPrecision(true)
 
-function controllers:getAll()
-    local allControllers = { peripheral.find("tweaked_controller") }
-    for k, v in pairs(allControllers) do
-        self.controllers[k] = setmetatable({ joy = v }, { __index = absController })
-    end
+-- Throttle state
+local power = 15        -- Start at full resistor power (engine off)
+local MIN_POWER = 0     -- Full speed
+local MAX_POWER = 15    -- Engine off
+local COAST_SPEED = 0.01
+local BRAKE_SPEED = 0.2
+local ACCEL_SPEED = 0.05
+
+-- Output to redstone resistor (assumes below computer)
+local RESISTOR_SIDE = "bottom"
+
+-- Time tracking
+local function sleepTick()
+    os.sleep(0.05)
 end
 
 -- Main loop
-local function main()
-    controllers:getAll()
-    local resistorSide = "bottom" -- change if needed
+while true do
+    if controller.hasUser() then
+        local yAxis = -controller.getAxis(2) -- Inverted: Up (W) = 1, Down (S) = -1
 
-    local power = 15 -- Start at full power (car stopped)
-    redstone.setAnalogOutput(resistorSide, power)
-
-    while true do
-        for _, controller in pairs(controllers.controllers) do
-            controller:refresh()
-
-            if controller.hasUser then
-                local y = controller.LeftStick.y
-                if y < -0.5 then
-                    -- Holding W: Accelerate (lower power)
-                    power = math.max(0, power - 1)
-                elseif y > 0.5 then
-                    -- Holding S: Brake (increase power fast)
-                    power = math.min(15, power + 2)
-                else
-                    -- No input: Slowly return to idle
-                    power = math.min(15, power + 0.1)
-                end
-                redstone.setAnalogOutput(resistorSide, math.floor(power + 0.5)) -- round to int
-            end
+        if yAxis > 0.2 then
+            -- Holding W (Accelerate)
+            power = math.max(MIN_POWER, power - ACCEL_SPEED)
+        elseif yAxis < -0.2 then
+            -- Holding S (Brake/Reverse)
+            power = math.min(MAX_POWER, power + BRAKE_SPEED)
+        else
+            -- Neither: slowly return to default (coast)
+            power = math.min(MAX_POWER, power + COAST_SPEED)
         end
-        sleep(0.1)
-    end
-end
 
-main()
+        rs.setAnalogOutput(RESISTOR_SIDE, math.floor(power + 0.5))
+    end
+
+    sleepTick()
+end
