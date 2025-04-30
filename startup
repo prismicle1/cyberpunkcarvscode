@@ -1,0 +1,32 @@
+function controllers:getAll()
+    local allControllers = {peripheral.find("tweaked_controller")}
+    for k, v in pairs(allControllers) do
+        self.controllers[k] = setmetatable({ joy = v }, { __index = absController })
+        self.controllers[k]:defaultOutput()
+
+        -- Link the redstone resistor (adjust this for where your resistor is)
+        local redstoneResistor = peripheral.wrap("bottom")  -- Assuming the redstone resistor is at the bottom
+
+        -- Refresh controller input
+        self.controllers[k]:refresh()
+
+        -- Get the Left Stick Y Axis input for W and S keybinds
+        local leftStickY = self.controllers[k].LeftStick.y
+
+        -- If W is held (LeftStick Y negative), lower power (increase speed)
+        if leftStickY < -0.5 then  -- You can tweak this threshold for sensitivity
+            local currentPower = redstoneResistor.getOutput("bottom")
+            redstoneResistor.setOutput("bottom", math.max(0, currentPower - 1))  -- Decrease power for acceleration
+
+        -- If S is held (LeftStick Y positive), raise power (decrease speed)
+        elseif leftStickY > 0.5 then  -- You can tweak this threshold for sensitivity
+            local currentPower = redstoneResistor.getOutput("bottom")
+            redstoneResistor.setOutput("bottom", math.min(15, currentPower + 1))  -- Increase power for braking
+
+        -- When no key is held (no significant movement), slowly increase power
+        else
+            local currentPower = redstoneResistor.getOutput("bottom")
+            redstoneResistor.setOutput("bottom", math.min(15, currentPower + 0.05))  -- Gradually raise power
+        end
+    end
+end
